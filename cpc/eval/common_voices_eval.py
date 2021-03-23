@@ -17,10 +17,12 @@ import progressbar
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from torch.multiprocessing import Pool
+from cpc.cpc_default_config import get_default_cpc_config
 from cpc.criterion.seq_alignment import get_seq_PER
 from cpc.criterion.seq_alignment import beam_search
-from cpc.feature_loader import loadModel
+from cpc.feature_loader import loadArgs, loadModel, getAR, getEncoder
 from cpc.dataset import findAllSeqs, parseSeqLabels, filterSeqs
+from cpc.model import CPCModel
 
 
 def load(path_item):
@@ -171,6 +173,8 @@ class CTCphone_criterion(torch.nn.Module):
         B, S, H = cFeature.size()
         predictions = self.getPrediction(cFeature, featureSize)
         featureSize /= 4
+        featureSize = featureSize.long()
+
         predictions = cut_data(predictions, featureSize)
         featureSize = torch.clamp(featureSize, max=predictions.size(1))
         label = cut_data(label, labelSize)
@@ -228,7 +232,7 @@ def train_step(train_loader,
     avg_loss = 0
     nItems = 0
 
-    for data in train_loader:
+    for i, data in enumerate(train_loader):
         optimizer.zero_grad()
         seq, sizeSeq, phone, sizePhone = prepare_data(data)
         c_feature, _, _ = model(seq, None)
@@ -241,6 +245,9 @@ def train_step(train_loader,
         avg_loss += loss.mean().item()
         nItems += 1
         optimizer.step()
+
+        print(f"\r{i}/{len(train_loader)}: {loss.mean().item()}", end="", flush=True)
+    print(f"\r                                                 ", end="", flush=True)
 
     return avg_loss / nItems
 
@@ -255,7 +262,7 @@ def val_step(val_loader,
     avg_loss = 0
     nItems = 0
 
-    for data in val_loader:
+    for i, data in enumerate(val_loader):
         with torch.no_grad():
             seq, sizeSeq, phone, sizePhone = prepare_data(data)
             c_feature, _, _ = model(seq, None)
@@ -264,12 +271,15 @@ def val_step(val_loader,
             avg_loss += loss.mean().item()
             nItems += 1
 
+        print(f"\r{i}/{len(val_loader)}: {loss.mean().item()}", end="", flush=True)
+    print(f"\r                                               ", end="", flush=True)
+
     return avg_loss / nItems
 
 
 def get_per(data):
     pred, size_pred, gt, size_gt, blank_label = data
-    l_ = min(size_pred // 4, pred.size(0))
+    l_ = int(min(size_pred // 4, pred.size(0)))
     p_ = pred[:l_].view(l_, -1).numpy()
     gt_seq = gt[:size_gt].view(-1).tolist()
     predSeq = beam_search(p_, 20, blank_label)[0][1]
@@ -503,6 +513,21 @@ if __name__ == "__main__":
         downsampling_factor = 1
         feature_maker = IDModule()
         hiddenGar = args.in_dim
+    elif args.pathCheckpoint == "hub":
+        print("Load model from pytorch hub")
+        locArgs = get_default_cpc_config()
+        checkpoint_url = 'https://dl.fbaipublicfiles.com/librilight/CPC_checkpoints/60k_epoch4-d0f474de.pt'
+        checkpoint = torch.hub.load_state_dict_from_url(checkpoint_url,
+                                                        progress=False,
+                                                        map_location="cuda:0")
+        loadArgs(locArgs, argparse.Namespace(**checkpoint["config"]))
+        encoderNet = getEncoder(locArgs)
+        arNet = getAR(locArgs)
+        model = CPCModel(encoderNet, arNet)
+        model.load_state_dict(checkpoint["weights"], strict=False)
+        feature_maker = model
+        hiddenGar = locArgs.hiddenGar
+        print(feature_maker, hiddenGar)
     else:
         feature_maker, hiddenGar, _ = loadModel([args.pathCheckpoint],
                                                 loadStateDict=not args.no_pretraining)
