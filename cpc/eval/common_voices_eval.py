@@ -75,8 +75,12 @@ class SingleSequenceDataset(Dataset):
         start_time = time.time()
         to_load = [Path(self.pathDB) / x for _, x in self.seqNames]
 
-        with Pool(nprocess) as p:
-            poolData = p.map(load, to_load)
+        poolData = []
+        for path in to_load:
+            poolData.append(load(path))
+
+        # with Pool(nprocess) as p:
+        #     poolData = p.map(load, to_load)
 
         tmpData = []
         poolData.sort()
@@ -247,7 +251,7 @@ def train_step(train_loader,
         optimizer.step()
 
         print(f"\r{i}/{len(train_loader)}: {loss.mean().item()}", end="", flush=True)
-    print(f"\r                                                 ", end="", flush=True)
+    print(f"\r                                               \r", end="", flush=True)
 
     return avg_loss / nItems
 
@@ -272,7 +276,7 @@ def val_step(val_loader,
             nItems += 1
 
         print(f"\r{i}/{len(val_loader)}: {loss.mean().item()}", end="", flush=True)
-    print(f"\r                                               ", end="", flush=True)
+    print(f"\r                                             \r", end="", flush=True)
 
     return avg_loss / nItems
 
@@ -528,6 +532,7 @@ if __name__ == "__main__":
         feature_maker = model
         hiddenGar = locArgs.hiddenGar
         print(feature_maker, hiddenGar)
+        print()
     else:
         feature_maker, hiddenGar, _ = loadModel([args.pathCheckpoint],
                                                 loadStateDict=not args.no_pretraining)

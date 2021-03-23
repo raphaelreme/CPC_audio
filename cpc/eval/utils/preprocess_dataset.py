@@ -49,7 +49,6 @@ def split(lang, seed=42):  # Ugly and repetitive...
         transform = torchaudio.transforms.Resample(
             orig_freq=sampling_rate, new_freq=SAMPLING_RATE, resampling_method='sinc_interpolation')
         x = transform(x)
-        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
 
         length = x.shape[1] / SAMPLING_RATE
 
@@ -66,6 +65,7 @@ def split(lang, seed=42):  # Ugly and repetitive...
             save_split(lang, train, "train_large.txt")
             break
 
+        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
         train.append(path[:-4])  # Add path without .mp3
         total_length += length
 
@@ -80,15 +80,15 @@ def split(lang, seed=42):  # Ugly and repetitive...
         transform = torchaudio.transforms.Resample(
             orig_freq=sampling_rate, new_freq=SAMPLING_RATE, resampling_method='sinc_interpolation')
         x = transform(x)
-        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
 
-        length = x.shape[1] / sampling_rate
+        length = x.shape[1] / SAMPLING_RATE
 
         if total_length < VAL_DURATION and total_length + length >= VAL_DURATION:
             print("\rVal split duration:", total_length)
             save_split(lang, val, "val.txt")
             break
 
+        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
         val.append(path[:-4])  # Add path without .mp3
         total_length += length
 
@@ -103,7 +103,6 @@ def split(lang, seed=42):  # Ugly and repetitive...
         transform = torchaudio.transforms.Resample(
             orig_freq=sampling_rate, new_freq=SAMPLING_RATE, resampling_method='sinc_interpolation')
         x = transform(x)
-        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
 
         length = x.shape[1] / SAMPLING_RATE
 
@@ -111,6 +110,7 @@ def split(lang, seed=42):  # Ugly and repetitive...
             print("\rSmall test split duration:", total_length)
             save_split(lang, test, "test_small.txt")
 
+        torchaudio.save(f"{DB_OUT}/{lang}/clips/{path}", x, SAMPLING_RATE, channels_first=True)
         test.append(path[:-4])  # Add path without .mp3
         total_length += length
 
@@ -125,7 +125,6 @@ def split(lang, seed=42):  # Ugly and repetitive...
 def save_split(lang, files, name):
     with open(f"{DB_OUT}/{lang}/{name}", "w") as f:
         f.write("\n".join(files))
-
 
 
 def phonemize(lang, files):
@@ -163,6 +162,8 @@ def phonemize(lang, files):
     with open(f"{DB_OUT}/{lang}/phonemes_to_id.json", "w") as f:  # Phonemes to id
         json.dump(phonemes_to_id, f)
 
+    return annotations
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -187,4 +188,32 @@ if __name__ == "__main__":
     TEST_SMALL_DURATION = args.test_small_duration
 
     files = split(args.lang)
-    phonemize(args.lang, files)
+    annotations = phonemize(args.lang, files)
+
+    # Check every thing is correct
+
+    l = os.listdir(f"{DB_OUT}/{args.lang}/clips")
+    assert len(l) == len(files) == len(annotations), f"{len(l)}, {len(files)}, {len(annotations)}"
+
+    with open(f"{DB_OUT}/{args.lang}/train_small.txt", "r") as f:
+        train_small = set(f.read().strip().split("\n"))
+    with open(f"{DB_OUT}/{args.lang}/train_medium.txt", "r") as f:
+        train_medium = set(f.read().strip().split("\n"))
+    with open(f"{DB_OUT}/{args.lang}/train_large.txt", "r") as f:
+        train_large = set(f.read().strip().split("\n"))
+    with open(f"{DB_OUT}/{args.lang}/val.txt", "r") as f:
+        val = set(f.read().strip().split("\n"))
+    with open(f"{DB_OUT}/{args.lang}/test_small.txt", "r") as f:
+        test_small = set(f.read().strip().split("\n"))
+    with open(f"{DB_OUT}/{args.lang}/test_full.txt", "r") as f:
+        test_full = set(f.read().strip().split("\n"))
+
+    assert train_small.issubset(train_medium), str(train_small.difference(train_medium))
+    assert train_medium.issubset(train_large), str(train_medium.difference(train_large))
+    assert test_small.issubset(test_full), str(test_small.difference(test_full))
+
+    assert len(train_large.intersection(val)) == 0, str(train_large.intersection(val))
+    assert len(test_full.intersection(val)) == 0, str(test_full.intersection(val))
+    assert len(train_large.intersection(test_full)) == 0, str(train_large.intersection(test_full))
+
+    assert set(files) == train_large.union(val).union(test_full)
