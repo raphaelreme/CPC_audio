@@ -325,8 +325,12 @@ def perStep(val_loader,
             data_per = [(predictions[b], sizeSeq[b], phone[b], sizePhone[b],
                          criterion.module.BLANK_LABEL) for b in range(bs)]
 
-            with Pool(bs) as p:
-                poolData = p.map(get_per, data_per)
+            # with Pool(bs) as p:
+            #     poolData = p.map(get_per, data_per)
+            poolData = []
+            for x in data_per:
+                poolData.append(get_per(x))
+
             avgPER += sum([x for x in poolData])
             varPER += sum([x*x for x in poolData])
             nItems += len(poolData)
@@ -477,6 +481,7 @@ if __name__ == "__main__":
     parser_per.add_argument('--name', type=str, default="0")
 
     args = parser.parse_args()
+    print(sys.argv)
 
     if args.command == 'per':
         args = get_PER_args(args)
@@ -528,7 +533,8 @@ if __name__ == "__main__":
         encoderNet = getEncoder(locArgs)
         arNet = getAR(locArgs)
         model = CPCModel(encoderNet, arNet)
-        model.load_state_dict(checkpoint["weights"], strict=False)
+        if not args.no_pretraining:
+            model.load_state_dict(checkpoint["weights"], strict=False)
         feature_maker = model
         hiddenGar = locArgs.hiddenGar
         print(feature_maker, hiddenGar)
